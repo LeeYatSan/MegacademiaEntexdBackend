@@ -25,7 +25,10 @@ SECRET_KEY = 'clgh4_m_uag@8vc8izg8t*3xh$)8=y-0%xm7b-507v+u(1ko3$'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    '10.0.2.2',
+    '127.0.0.1'
+]
 
 
 # Application definition
@@ -77,8 +80,12 @@ WSGI_APPLICATION = 'Megacademia.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        'ENGINE': 'django.db.backends.mysql',  # 或者使用 mysql.connector.django
+        'NAME': 'megacademia',
+        'USER': 'developer',
+        'PASSWORD': 'developer',
+        'HOST': 'localhost',
+        'PORT': '3306',
     }
 }
 

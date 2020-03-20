@@ -19,5 +19,9 @@ from MegacademiaAPP import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/v1/extend/interest', views.handle_interest)
+    path('api/v1/extend/interest', views.handle_interest),
+    path('api/v1/extend/upload_file', views.upload_file),
+    path('api/v1/extend/sharing_file/<str:sharing_code>', views.download_file),
+    path('api/v1/extend/get_csrf', views.get_csrf),
+    path('api/v1/extend/search_interest', views.get_interest_statuses)
 ]

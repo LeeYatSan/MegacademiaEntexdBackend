@@ -1,0 +1,6 @@
+{
+    "domain": "https://leeyatsan.cn",
+    "extended_server_domain": "http://127.0.0.1:8000",
+    "type_weight": [0.28840, 0.06554, 0.14654, 0.49952],
+    "storage_path": "MegacademiaAPP/sharing file"
+}

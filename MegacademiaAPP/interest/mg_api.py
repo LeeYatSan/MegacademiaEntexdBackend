@@ -1,4 +1,4 @@
-from MegacademiaAPP.interest.util import load_config
+from MegacademiaAPP.util import load_config
 
 domain = ''
 api_v1 = ''
@@ -21,9 +21,14 @@ def get_someone_statuses(user_id):
     return '%s/accounts/%s/statuses' % (api_v1, user_id)
 
 
-def get_home_time():
+def get_home_timeline():
     load_domain()
     return '%s/timelines/home' % api_v1
+
+
+def get_public_timeline():
+    load_domain()
+    return '%s/timelines/public' % api_v1
 
 
 def get_favourite_statuses():
@@ -34,3 +39,8 @@ def get_favourite_statuses():
 def get_user_info(user_id):
     load_domain()
     return '%s/accounts/%s' % (api_v1, user_id)
+
+
+def search():
+    load_domain()
+    return '%s/api/v2/search' % domain

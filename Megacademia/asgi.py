@@ -1,5 +1,5 @@
 """
-ASGI config for Megacademia project.
+ASGI config.json for Megacademia project.
 
 It exposes the ASGI callable as a module-level variable named ``application``.
 

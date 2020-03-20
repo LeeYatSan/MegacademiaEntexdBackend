@@ -16,3 +16,4 @@ requests==2.23.0
 urllib3==1.25.8
 django-redis==4.11.0
 redis==3.4.1
+pymysql==0.9.3

@@ -1,13 +1,15 @@
 from jieba.analyse import set_stop_words, extract_tags
-from json import load, dumps
+from json import load
 from re import sub
 from pyquery import PyQuery
 from MegacademiaAPP.interest.load_stop_word import get_stop_word_list_file_path
-from MegacademiaAPP.interest.util import load_config
+from MegacademiaAPP.util import load_config
 from MegacademiaAPP.interest import mg_api as MgAPI
 from urllib.parse import urlparse
 from django.core.cache import cache
+from MegacademiaAPP.interest.word2vec_process import get_key_vector, get_init_vec, cos_sim
 import requests
+import jieba.analyse
 
 
 class InterestInfo:
@@ -103,17 +105,17 @@ class InterestInfo:
         InterestInfo.__type_weight = load_config('type_weight')
         # try:
         #     config_path = os.path.split(
-        #         os.path.realpath(__file__))[0] + os.sep + 'config.json'
+        #         os.path.realpath(__file__))[0] + os.sep + 'config.json.json'
         #     if not os.path.isfile(config_path):
         #         sys.exit(u'当前路径：%s 不存在配置文件config.json' %
         #                  (os.path.split(os.path.realpath(__file__))[0] + os.sep))
         #     with open(config_path) as f:
         #         try:
-        #             config = json.loads(f.read())
+        #             config.json = json.loads(f.read())
         #         except ValueError:
-        #             sys.exit(u'config.json.json 格式不正确，请参考 '
+        #             sys.exit(u'config.json.json.json 格式不正确，请参考 '
         #                      u'https://github.com/dataabc/weiboSpider#3程序设置')
-        #     InterestInfo.__type_weight = config.get('type_weight')
+        #     InterestInfo.__type_weight = config.json.get('type_weight')
         # except Exception as e:
         #     print('Error: ', e)
         #     print_exc()
@@ -161,7 +163,7 @@ def load_mg_data(user_id='', user_token='', user_note=''):
     # 0->原创 1->关注 2->点赞 3->简介
     raw_text = [
         load_mg_statuses_data(user_token=user_token, url=MgAPI.get_someone_statuses(user_id)),
-        load_mg_statuses_data(user_token=user_token, url=MgAPI.get_home_time()),
+        load_mg_statuses_data(user_token=user_token, url=MgAPI.get_home_timeline()),
         load_mg_statuses_data(user_token=user_token, url=MgAPI.get_favourite_statuses(), enable_link_header=True),
         # requests.get(url=MgAPI.get_user_info(user_id)).json()
         user_note
@@ -203,6 +205,22 @@ def load_mg_statuses_data(user_token='', url='', enable_link_header=False):
     return statuses
 
 
+def __extract_string_tag(content='', k=10):
+    """
+    提取文本关键词及权值
+    :param content: 文本内容
+    :param k: 提取数量
+    :return: 文本关键词及权值
+    """
+    # 去除HTML标签、URL和结尾空格
+    url_reg = r'[a-z]*[:.]+\S+'  # URL 正则表达式
+    tmp = sub(url_reg, '', PyQuery(content).text().rstrip())
+    # jieba分词、去停用词、计算TF-IDF、提取关键词
+    set_stop_words(get_stop_word_list_file_path())
+    tags = extract_tags(tmp, topK=k, withWeight=True)
+    return tags
+
+
 def extract_key_words(statuses, is_weibo=True, is_note=False):
     """
     提取关键词
@@ -225,14 +243,14 @@ def extract_key_words(statuses, is_weibo=True, is_note=False):
             for status in statuses:
                 raw_str += status['content']
 
-    # 去除HTML标签、URL和结尾空格
-    url_reg = r'[a-z]*[:.]+\S+'  # URL 正则表达式
-    tmp = sub(url_reg, '', PyQuery(raw_str).text().rstrip())
-
-    # jieba分词、去停用词、计算TF-IDF、提取关键词
-    set_stop_words(get_stop_word_list_file_path())
-    tags = extract_tags(tmp, topK=10, withWeight=True)
-
+    # # 去除HTML标签、URL和结尾空格
+    # url_reg = r'[a-z]*[:.]+\S+'  # URL 正则表达式
+    # tmp = sub(url_reg, '', PyQuery(raw_str).text().rstrip())
+    #
+    # # jieba分词、去停用词、计算TF-IDF、提取关键词
+    # set_stop_words(get_stop_word_list_file_path())
+    # tags = extract_tags(tmp, topK=10, withWeight=True)
+    tags = __extract_string_tag(content=raw_str, k=10)
     return tags
 
 
@@ -311,14 +329,88 @@ def get_top_k(is_weibo=True, user_id='', user_token='', user_note='', k=1):
             # print("%s  %f" % (interests[i][0], interests[i][1]))
             temp[interests[i][0]] = interests[i][1]
     data = []
+    interest_vec = get_init_vec()
     for key, value in temp.items():
         data.append({'interest_name': key, 'weight': value})
+        interest_vec += get_key_vector(key) * value
+    # print(interest_vec)
     result = {'interest': data}
     # 保存到缓存中（缓存一周 604800s）
     interest_info = {
         "note": user_note,
-        "info": result
+        "info": result,
+        "interest_vector": interest_vec
     }
     cache.set('%s_IST' % user_id, interest_info, timeout=604800)
     # print(result)
     return result
+
+
+def __get_search_result(user_token='', q=''):
+    """
+    查询操作
+    :param user_token: user token
+    :param q: 查询值
+    :return: 查询结果
+    """
+    headers = {'Authorization': user_token}
+    data = {'q': q, 'limit': 40}
+    response = requests.get(url=MgAPI.search(), headers=headers, data=data)
+    return response.json()
+
+
+def __extract_status_interest_sim(content='', interest_vec=get_init_vec()):
+    """
+    获取动态关键词向量
+    :param content: 动态内容
+    :return: 关键词向量
+    """
+    tags = __extract_string_tag(content=content, k=3)
+    if len(tags) < 3:
+        return 0.0
+    tag_vec = get_init_vec()
+    for tag in tags:
+        tag_name = tag[0]
+        tag_weight = tag[1]
+        tag_vec += get_key_vector(tag_name) * tag_weight
+    return cos_sim(interest_vec, tag_vec)
+
+
+def get_interest_status(user_id='', user_token='', q=''):
+    """
+    获取用户兴趣动态
+    :param user_id: Megacademia 用户id
+    :param user_token: user token
+    :param q: 查询值
+    :return: 查询结果
+    """
+    raw_data = __get_search_result(user_token=user_token, q=q)
+    user_interest = cache.get('%s_IST' % user_id)
+    # 命中缓存：进行兴趣比对；未命中缓存：直接返回原始查询结果
+    if user_interest is not None:
+        # print("Redis hit %s" % user_id)
+        user_interest_vec = user_interest['interest_vector']
+        raw_statuses = raw_data['statuses']
+        # print("before:")
+        # print(raw_data)
+        interest_sim = {}
+        id_map = {}
+        curr_id = 0
+        for raw_status in raw_statuses:
+            id_map[curr_id] = raw_status
+            interest_sim[curr_id] = __extract_status_interest_sim(content=raw_status['content'], interest_vec=user_interest_vec)
+            curr_id += 1
+        sorted_interest_sim = sorted(interest_sim.items(), key=lambda x: x[1], reverse=True)
+        # print(sorted_interest_sim)
+        statuses = []
+        max_id = int(0.2*len(sorted_interest_sim))
+        count = 0
+        for status_id in sorted_interest_sim:
+            statuses.append(id_map[status_id[0]])
+            count += 1
+            if count == max_id:
+                break
+        raw_data['statuses'] = statuses
+        # print("after:")
+        # print(raw_data)
+    return raw_data

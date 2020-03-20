@@ -1,5 +1,5 @@
 """
-WSGI config for Megacademia project.
+WSGI config.json for Megacademia project.
 
 It exposes the WSGI callable as a module-level variable named ``application``.
 
