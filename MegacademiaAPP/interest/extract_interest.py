@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 from django.core.cache import cache
 from MegacademiaAPP.interest.word2vec_process import get_key_vector, get_init_vec, cos_sim
 import requests
-import jieba.analyse
 
 
 class InterestInfo:
