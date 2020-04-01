@@ -23,5 +23,6 @@ urlpatterns = [
     path('api/v1/extend/upload_file', views.upload_file),
     path('api/v1/extend/sharing_file/<str:sharing_code>', views.download_file),
     path('api/v1/extend/get_csrf', views.get_csrf),
-    path('api/v1/extend/search_interest', views.get_interest_statuses)
+    path('api/v1/extend/search_interest', views.get_interest_statuses),
+    path('api/v1/extend/get_social_network_graph/<str:user_id>', views.social_network_graph),
 ]

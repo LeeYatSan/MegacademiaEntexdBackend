@@ -7,8 +7,14 @@ from MegacademiaAPP.util import load_config
 from MegacademiaAPP.interest import mg_api as MgAPI
 from urllib.parse import urlparse
 from django.core.cache import cache
+from os.path import join, exists
+from os import remove
 from MegacademiaAPP.interest.word2vec_process import get_key_vector, get_init_vec, cos_sim
 import requests
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+import math
 
 
 class InterestInfo:
@@ -375,7 +381,157 @@ def __extract_status_interest_sim(content='', interest_vec=get_init_vec()):
     return cos_sim(interest_vec, tag_vec)
 
 
-def get_interest_status(user_id='', user_token='', q=''):
+# 绘制函数
+def __draw_graph(df, top, person_graph, user_id):
+    """
+    绘制关系图
+    :param df: DataFrame
+    :param top: int, numbers of top
+    :param person_graph: person graph
+    :param pos: graph layout
+    :return: 社交关系图URL
+    """
+    # 创建一致的图形布局
+    # pos = nx.circular_layout(person_graph)
+    pos = nx.kamada_kawai_layout(person_graph)
+    # pos = nx.shell_layout(person_graph)
+    # pos = nx.spring_layout(person_graph)
+    # pos = nx.random_layout(person_graph)
+    # 生成节点列表
+    nodes = df.index.values.tolist()
+    # 生成边列表
+    edges = nx.to_edgelist(person_graph)
+    # 生成无向度量图
+    metric_graph = nx.Graph()
+    metric_graph.add_nodes_from(nodes)
+    metric_graph.add_edges_from(edges)
+    # 生成 Top n 的标签列表
+    top_labels = {}
+    for node in nodes[0:top]:
+        top_labels[node] = node
+    # 生成节点尺寸列表
+    node_sizes = []
+    for node in nodes:
+        node_sizes.append(df.loc[node]['Degree'] * 64 ** 2)
+    # 设置图形尺寸
+    plt.figure(1, figsize=(16, 16)).clf()
+    # 绘制图形
+    nx.draw(metric_graph, pos=pos, node_color='#cf1322', with_labels=False)
+    nx.draw_networkx_nodes(metric_graph, pos=pos, nodelist=nodes, node_color='#CFCFCF')
+    nx.draw_networkx_nodes(metric_graph, pos=pos, nodelist=nodes[0:1], node_color='#FF4500', node_size=node_sizes[0:1])
+    if top > 1:
+        nx.draw_networkx_nodes(metric_graph, pos=pos, nodelist=nodes[1:top], node_color='#F2D560', node_size=node_sizes[1:top])
+    nx.draw_networkx_nodes(metric_graph, pos=pos, nodelist=nodes[top:], node_color='#FFF8DC', node_size=node_sizes[top:])
+    nx.draw_networkx_edges(metric_graph, pos=pos, edgelist=edges, edge_color='#d9d9d9', arrows=False)
+    nx.draw_networkx_labels(metric_graph, pos=pos, font_size=20, font_color='#555555')
+    # nx.draw_networkx_labels(metric_graph, pos=pos, label=node[0], font_size=20, font_color='#FFFFFF')
+    nx.draw_networkx_labels(metric_graph, pos=pos, labels=top_labels, font_size=20, font_color='#FFFFFF')
+    # 生成保存路径
+    storage_path = load_config('social_network_graph_path')
+    file_path = join(storage_path, "%s.png" % user_id)
+    print(file_path)
+    # 保存图片
+    plt.savefig(file_path)
+
+
+def __get_follower(user_token='', user_id=''):
+    """
+    查询操作
+    :param user_token: user token
+    :param user_id: 用户a
+    :return: 查询结果
+    """
+    headers = {'Authorization': user_token}
+    data = {'limit': 40}
+    response = requests.get(url=MgAPI.follower(user_id), headers=headers, data=data)
+    followers = []
+    for user in response.json():
+        followers.append(user['id'])
+    return followers
+
+
+def __check_relationship(id_a, id_b, user_token=''):
+    """
+    检查两个用户之间是否存在关注关系
+    :param id_a: 用户a
+    :param id_b: 用户b
+    :return:
+    """
+    a_followers = __get_follower(user_token=user_token, user_id=id_a)
+    if id_b in a_followers:
+        return True
+    b_followers = __get_follower(user_token=user_token, user_id=id_b)
+    if id_a in b_followers:
+        return True
+    print("%s no association with %s" % (id_a, id_b))
+    return False
+
+
+def generate_social_network_graph(user_id='', username="Me", user_token='', statuses=[]):
+    """
+    获取社交关系图
+    :param user_id: 用户ID
+    :param username: 用户名
+    :param user_token: 用户token
+    :param statuses: 动态数组
+    """
+    ids = []
+    usernames = []
+    ids.append(user_id)
+    usernames.append('@%s' % username)
+    for status in statuses:
+        account = status['account']
+        curr_id = account['id']
+        curr_username = account['username']
+        if curr_id not in ids:
+            ids.append(curr_id)
+            usernames.append('@%s' % curr_username)
+    id_a , id_b, username_a, username_b, isolating_id, isolating_username = [], [], [], [], [], []
+    num = len(ids)
+    top = math.ceil(num*0.1)
+    x, y = 0, 0
+    while x < num:
+        y = x+1
+        isolated = True
+        while y < num:
+            if __check_relationship(ids[x], ids[y], user_token):
+                isolated = False
+                id_a.append(ids[x])
+                id_b.append(ids[y])
+                username_a.append(usernames[x])
+                username_b.append(usernames[y])
+            y += 1
+        if isolated:
+            isolating_id.append(ids[x])
+            isolating_username.append(usernames[x])
+        x += 1
+    people_raw = {
+        'id_a': id_a,
+        'username_a': username_a,
+        'id_b': id_b,
+        'username_b': username_b,
+    }
+    person_assoc = pd.DataFrame(people_raw)
+    print(person_assoc)
+    # 生成图
+    person_graph = nx.from_pandas_edgelist(person_assoc, source='username_a', target='username_b')
+    # 添加孤立节点
+    for curr_isolating_username in isolating_username:
+        person_graph.add_node(curr_isolating_username)
+    # 计算中心度
+    person_betweenness = pd.Series(nx.betweenness_centrality(person_graph), name='Betweenness')
+    person_person = pd.Series.to_frame(person_betweenness)
+    person_person['Closeness'] = pd.Series(nx.closeness_centrality(person_graph))
+    person_person['PageRank'] = pd.Series(nx.pagerank_scipy(person_graph))
+    person_person['Degree'] = pd.Series(dict(nx.degree(person_graph)))
+    desc_betweenness = person_person.sort_values(['Betweenness', 'Closeness', 'PageRank', 'Degree'], ascending=False)
+    desc_betweenness.head(10)
+    print(person_person)
+    print(desc_betweenness.index.values.tolist())
+    __draw_graph(desc_betweenness, top, person_graph, user_id)
+
+
+def get_interest_status(user_id='', username='', user_token='', q=''):
     """
     获取用户兴趣动态
     :param user_id: Megacademia 用户id
@@ -402,7 +558,7 @@ def get_interest_status(user_id='', user_token='', q=''):
         sorted_interest_sim = sorted(interest_sim.items(), key=lambda x: x[1], reverse=True)
         # print(sorted_interest_sim)
         statuses = []
-        max_id = int(0.2*len(sorted_interest_sim))
+        max_id = int(0.5*len(sorted_interest_sim))
         count = 0
         for status_id in sorted_interest_sim:
             statuses.append(id_map[status_id[0]])
@@ -412,4 +568,19 @@ def get_interest_status(user_id='', user_token='', q=''):
         raw_data['statuses'] = statuses
         # print("after:")
         # print(raw_data)
+    generate_social_network_graph(user_id=user_id, username=username, user_token=user_token, statuses=statuses)
     return raw_data
+
+
+def get_social_network_graph(user_id=''):
+    """
+    获取社交关系图
+    :param user_id: 用户ID
+    :return: 返回用户社交关系图
+    """
+    storage_path = load_config('social_network_graph_path')
+    file_path = join(storage_path, "%s.png" % user_id)
+    print("file path: %s" % str(file_path))
+    with open(str(file_path), 'rb') as file_location:
+        my_file = file_location.read()
+    return my_file

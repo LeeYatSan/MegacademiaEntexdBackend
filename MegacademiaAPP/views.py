@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.http import HttpResponse, JsonResponse
 from django.template.context_processors import csrf
-from MegacademiaAPP.interest.extract_interest import get_top_k, get_interest_status
+from MegacademiaAPP.interest.extract_interest import get_top_k, get_interest_status, get_social_network_graph
 from MegacademiaAPP.share.handle_share import handle_upload_file, handle_download_file
 
 
@@ -81,11 +81,28 @@ def get_interest_statuses(request):
     if request.method == 'GET':
         # 用户ID
         user_id = request.GET.get('user_id')
+        # 用户名
+        username = request.GET.get('username')
         # 用户token
         user_token = request.GET.get('user_token')
         # 关键词
         q = request.GET.get('q')
-        result = get_interest_status(user_id=user_id, user_token=user_token, q=q)
+        result = get_interest_status(user_id=user_id, username=username, user_token=user_token, q=q)
         return JsonResponse(result)
     else:
         return HttpResponse('Fail to get user interested statuses')
+
+
+def social_network_graph(request, user_id=''):
+    """
+    获取社交关系图
+    :param request: 请求
+    :param user_id: 用户ID
+    :return: 社交关系图
+    """
+    if request.method == 'GET':
+        # 用户ID
+        result = get_social_network_graph(user_id)
+        return HttpResponse(result, content_type="image/png")
+    else:
+        return HttpResponse('Fail to get social network graph')

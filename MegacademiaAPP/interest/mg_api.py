@@ -44,3 +44,8 @@ def get_user_info(user_id):
 def search():
     load_domain()
     return '%s/api/v2/search' % domain
+
+
+def follower(user_id):
+    load_domain()
+    return '%s/api/v1/accounts/%s/followers' % (domain, user_id)
